@@ -26,7 +26,7 @@ import {
 
 const APP_DOMAIN =
   window.location.origin +
-  "/Prime-follower-web/download.html";
+  "/Free-Followers-/download.html";
 const MAX_REFERRALS = 3;
 const REFERRAL_CREDITS = [0, 10, 25, 0]; // index = referral count (3 unlocks bonus, not credits)
 
