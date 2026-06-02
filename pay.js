@@ -23,7 +23,6 @@ import {
 
 
 // ── 2. Configuration ──
-const RAZORPAY_KEY = "rzp_test_Styn7RImMfthAO"; // ← CHANGE TO LIVE KEY BEFORE PRODUCTION
 
 let currentTimer      = null;
 let currentPackageData = null;
@@ -76,7 +75,7 @@ window.cancelPaymentConfirm = function () {
 };
 
 /** Move from confirmation modal → Instagram details modal. */
-window.proceedToRazorpay = function () {
+window.proceedToCashfree = function () {
   document.getElementById('payment-confirm-modal')?.classList.remove('visible');
   document.getElementById('instagram-details-modal')?.classList.add('visible');
 };
@@ -182,72 +181,63 @@ async function handlePaymentSuccess(orderId, response, packageData) {
 
 // ── 6. Main Payment Function ──
 
-export async function buyWithRazorpay(packageData) {
+// ── 6. Main Payment Function ──
+export async function buyWithCashfree(packageData) {
   const user = window.cashTreasureUser;
   if (!user) return showToast("Please login first", "error");
 
   const canOrder = await canPlacePaidOrder(user.uid);
   if (!canOrder) return showToast("You can only order once every 12 hours", "error");
 
+  const btn = document.querySelector('#confirm-instagram-btn');
+  if (btn) btn.disabled = true;
+
   try {
-    // Create a pending order record in Firestore first
-    const orderRef = await addDoc(collection(db, "paid_orders"), {
-      user_id:    user.uid,
-      user_name:  user.username || user.email || "User",
-      followers:  packageData.followers,
-      amount:     packageData.amount,
-      status:     "pending",
-      created_at: serverTimestamp()
+    // ←←← UPDATE THIS URL WITH YOUR RAILWAY URL ←←←
+    const backendUrl = "https://payment-backend-production-436d.up.railway.app";
+
+    const res = await fetch(`${backendUrl}/create-order`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        amount: packageData.amount,
+        userId: user.uid,
+        username: user.username || "User",
+        email: user.email || "user@example.com",
+        followers: packageData.followers
+      })
     });
 
-    const options = {
-      key:         RAZORPAY_KEY,
-      amount:      packageData.amount * 100, // Razorpay expects paise
-      currency:    "INR",
-      name:        "Prime Follower",
-      description: `${packageData.followers} Followers`,
-      image:       "https://primefollower.github.io/Prime-follower/insta.jpeg",
+    const data = await res.json();
 
-      handler: (response) => handlePaymentSuccess(orderRef.id, response, packageData),
-
-      modal: {
-        ondismiss: () => {
-          document.getElementById('payment-cancel-modal')?.classList.add('visible');
-        }
-      },
-
-      prefill: {
-        name:    user.username || "User",
-        email:   user.email    || "",
-        contact: user.phone    || ""
-      },
-
-      theme: { color: "#2563eb" },
-
-      config: {
-        display: {
-          blocks: {
-            upi: {
-              name:        "UPI",
-              instruments: [{ method: "upi" }]
-            }
-          }
-        }
-      }
-    };
-
-    if (typeof Razorpay !== 'undefined') {
-      new Razorpay(options).open();
-    } else {
-      showToast("Payment gateway not loaded. Please refresh.", "error");
+    if (!data.success || !data.payment_session_id) {
+      console.error("Backend error:", data);
+      return showToast(data.message || "Failed to create payment session", "error");
     }
 
+    const cashfree = Cashfree({
+      mode: "production"   // Change to "production" when you go live
+    });
+
+    cashfree.checkout({
+      paymentSessionId: data.payment_session_id,
+      redirectTarget: "_self"   // Better for mobile
+    }).then(async (result) => {
+      console.log("Payment Success:", result);
+      showToast("Payment Successful! 🎉", "success");
+      document.getElementById('payment-success-modal')?.classList.add('visible');
+    }).catch(err => {
+      console.error("Cashfree Error:", err);
+      document.getElementById('payment-cancel-modal')?.classList.add('visible');
+    });
+
   } catch (err) {
-    console.error("Razorpay initialization error:", err);
-    showToast("Failed to initialize payment", "error");
+    console.error("Fetch Error:", err);
+    showToast("Payment initialization failed. Try again.", "error");
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
-
 
 // ── 7. Buy Page Initialization + Limited Offer Timer ──
 
@@ -343,10 +333,10 @@ document.getElementById('confirm-instagram-btn')?.addEventListener('click', () =
   currentPackageData.instagram_link     = link;
 
   closeInstagramModal();
-  setTimeout(() => buyWithRazorpay(currentPackageData), 200);
+  setTimeout(() => buyWithCashfree(currentPackageData), 200);
 });
 
 
 // ── 8. Global Exports ──
 window.initBuyPage    = initBuyPage;
-window.buyWithRazorpay = buyWithRazorpay;
+window.buyWithCashfree = buyWithCashfree;
